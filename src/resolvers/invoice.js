@@ -1,5 +1,6 @@
 import { combineResolvers } from 'graphql-resolvers';
-
+import models from '../models';
+import { prepare } from '../util/index';
 import pubsub, { EVENTS } from '../subscription';
 import { isAuthenticated, isMessageOwner } from './authorization';
 
@@ -11,7 +12,7 @@ const fromCursorHash = (string) =>
 
 export default {
     Query: {
-        messages: async (
+        invoices: async (
             parent,
             { cursor, limit = 100 },
             { models },
@@ -23,7 +24,7 @@ export default {
                       },
                   }
                 : {};
-            const messages = await models.Message.find(
+            const invoices = await models.Invoice.find(
                 cursorOptions,
                 null,
                 {
@@ -32,10 +33,10 @@ export default {
                 },
             );
 
-            const hasNextPage = messages.length > limit;
+            const hasNextPage = invoices.length > limit;
             const edges = hasNextPage
-                ? messages.slice(0, -1)
-                : messages;
+                ? invoices.slice(0, -1)
+                : invoices;
 
             return {
                 edges,
@@ -47,36 +48,59 @@ export default {
                 },
             };
         },
-        message: async (parent, { id }, { models }) => {
-            return await models.Message.findById(id);
+        Invoice: async (root, { id }) => {
+            console.log(id);
+            const ret = prepare(
+                await models.Invoice.findOne(ObjectId(id)),
+            );
+            console.log(ret);
+            return ret;
+        },
+        allInvoices: async () => {
+            console.log('allInvoices');
+            try {
+                return (await models.Invoice.find({})).map(prepare);
+            } catch (ex) {
+                console.log(ex);
+            }
+        },
+        _allInvoicesMeta: async () => {
+            console.log('_allInvoicesMeta');
+            try {
+                const ret = await models.Invoice.find({});
+                console.log(ret);
+                const len = ret.length;
+                return { count: len };
+            } catch (ex) {
+                console.log(ex);
+            }
         },
     },
 
     Mutation: {
-        createMessage: combineResolvers(
+        createInvoice: combineResolvers(
             isAuthenticated,
             async (parent, { text }, { models, me }) => {
-                const message = await models.Message.create({
+                const invoice = await models.Invoice.create({
                     text,
                     userId: me.id,
                 });
 
-                pubsub.publish(EVENTS.MESSAGE.CREATED, {
-                    messageCreated: { message },
+                pubsub.publish(EVENTS.INVOICE.CREATED, {
+                    invoiceCreated: { invoice },
                 });
 
-                return message;
+                return invoice;
             },
         ),
 
-        deleteMessage: combineResolvers(
+        deleteInvoice: combineResolvers(
             isAuthenticated,
-            isMessageOwner,
             async (parent, { id }, { models }) => {
-                const message = await models.Message.findById(id);
+                const invoice = await models.Invoice.findById(id);
 
-                if (message) {
-                    await message.remove();
+                if (invoice) {
+                    await invoice.remove();
                     return true;
                 } else {
                     return false;
@@ -85,16 +109,10 @@ export default {
         ),
     },
 
-    Message: {
-        user: async (message, args, { loaders }) => {
-            return await loaders.user.load(message.userId);
-        },
-    },
-
     Subscription: {
-        messageCreated: {
+        invoiceCreated: {
             subscribe: () =>
-                pubsub.asyncIterator(EVENTS.MESSAGE.CREATED),
+                pubsub.asyncIterator(EVENTS.INVOCE.CREATED),
         },
     },
 };
